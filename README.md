@@ -1,27 +1,54 @@
-# Form Wingman
+const fieldList = document.getElementById('fieldList');
+const scanButton = document.getElementById('scanButton');
+const audioButton = document.getElementById('audioButton');
 
-A responsive React + Vite prototype for a trust-first form copilot. The app demonstrates field review, required-field guidance, and browser speech audio without accessing an external webpage.
+function renderFields(fields) {
+  if (!fields || fields.length === 0) {
+    fieldList.innerHTML = '<div class="empty">No form fields were detected on this page yet.</div>';
+    return;
+  }
 
-## Run locally
+  fieldList.innerHTML = fields.map((field) => `
+    <div class="field-item">
+      <strong>${field.label}</strong>
+      <div class="field-meta">
+        <span>${field.type || 'field'}</span>
+        <span class="tag ${field.required ? 'required' : ''}">${field.required ? 'required' : 'optional'}</span>
+      </div>
+    </div>
+  `).join('');
+}
 
-```bash
-npm install
-npm run dev
-```
+async function scanPage() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) return;
 
-Open the local URL printed by Vite (usually http://localhost:5173).
+  chrome.tabs.sendMessage(tab.id, { type: 'FORM_WINGMAN_SCAN' }, () => {
+    chrome.storage.local.get(['formWingmanFields'], (result) => {
+      renderFields(result.formWingmanFields || []);
+    });
+  });
+}
 
-## What works in this prototype
+scanButton.addEventListener('click', scanPage);
+audioButton.addEventListener('click', () => {
+  const firstField = fieldList.querySelector('.field-item strong');
+  if (!firstField) return;
 
-- Responsive Copilot, Templates, Saved Vault, Submissions, and Plans views.
-- Local demo form analysis after explicit consent. The URL is validated, but the page is not fetched, opened, or inspected.
-- Editable sample field suggestions, required-field markers, review filters, and copy controls.
-- Step-by-step written and speech-synthesis guidance (browser support required).
-- Sensitive payment steps are manual; the prototype never submits a form.
-- Keyboard-friendly controls, visible focus states, and reduced-motion support.
+  if ('speechSynthesis' in window) {
+    const message = `This field needs attention: ${firstField.textContent}. Review it and decide what to enter before you continue.`;
+    const utterance = new SpeechSynthesisUtterance(message);
+    utterance.rate = 0.96;
+    speechSynthesis.cancel();
+    speechSynthesis.speak(utterance);
+  } else {
+    alert('Audio guidance is not supported in this browser.');
+  }
+});
 
-## Important limitations
-
-This is a front-end demonstration, not a production form detector. A normal website cannot inspect another website's page. Real cross-site detection and user-approved filling would require a separately designed browser extension and careful permission boundaries. No accounts, admin tools, secure vault, external AI, payment integrations, or persistence are implemented. Do not enter real credentials, OTPs, card details, or financial information.
-
-For production, keep admins unable to access customer secrets, use established password-manager/payment-provider integrations rather than storing raw credentials, and obtain security and privacy review before handling personal data.
+chrome.storage.local.get(['formWingmanFields'], (result) => renderFields(result.formWingmanFields || []));
+chrome.runtime.onMessage.addListener((message) => {
+  if (message?.type === 'FORM_WINGMAN_FIELDS') {
+    renderFields(message.fields || []);
+  }
+});

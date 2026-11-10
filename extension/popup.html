@@ -1,0 +1,110 @@
+const FIELD_SELECTOR = ['input:not([type="hidden"]):not([disabled])', 'select:not([disabled])', 'textarea:not([disabled])'].join(', ');
+const HIGHLIGHT_CLASS = 'form-wingman-highlight';
+const HIGHLIGHT_STYLE = `
+  outline: 2px solid rgba(91, 227, 204, 0.95) !important;
+  box-shadow: 0 0 0 5px rgba(91, 227, 204, 0.16), 0 8px 24px rgba(0, 0, 0, 0.18) !important;
+  border-radius: 9px !important;
+  background-color: rgba(91, 227, 204, 0.03) !important;
+`;
+
+function getFieldLabel(element) {
+  if (!element) return 'Unknown field';
+
+  const byId = element.id && document.querySelector(`label[for="${CSS.escape(element.id)}"]`);
+  if (byId && byId.textContent) return byId.textContent.trim().replace(/\s+/g, ' ');
+
+  const nearestLabel = element.closest('label');
+  if (nearestLabel && nearestLabel.textContent) return nearestLabel.textContent.trim().replace(/\s+/g, ' ');
+
+  const ariaLabel = element.getAttribute('aria-label');
+  if (ariaLabel) return ariaLabel.trim();
+
+  const placeholder = element.getAttribute('placeholder');
+  if (placeholder) return placeholder.trim();
+
+  const name = element.getAttribute('name');
+  if (name) return name.replace(/[_-]+/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase());
+
+  return 'Unnamed field';
+}
+
+function isRequiredField(element) {
+  if (element.hasAttribute('required') || element.getAttribute('aria-required') === 'true') return true;
+
+  const type = (element.type || '').toLowerCase();
+  if (['password', 'email', 'tel', 'number'].includes(type)) return true;
+
+  return false;
+}
+
+function extractFields() {
+  const fields = Array.from(document.querySelectorAll(FIELD_SELECTOR)).map((element) => {
+    const tagName = element.tagName.toLowerCase();
+    const label = getFieldLabel(element);
+    const required = isRequiredField(element);
+
+    return {
+      elementId: element.id || `${tagName}-${Math.random().toString(36).slice(2, 8)}`,
+      label,
+      type: element.type || tagName,
+      required,
+      placeholder: element.getAttribute('placeholder') || '',
+      value: element.value || '',
+      name: element.getAttribute('name') || '',
+      tagName,
+    };
+  }).filter((field) => field.label && field.label !== 'Unknown field');
+
+  return fields.slice(0, 15);
+}
+
+function applyHighlights(fields) {
+  document.querySelectorAll(`.${HIGHLIGHT_CLASS}`).forEach((el) => el.classList.remove(HIGHLIGHT_CLASS));
+
+  fields.forEach((field) => {
+    const el = document.getElementById(field.elementId) || document.querySelector(`[name="${CSS.escape(field.name)}"]`);
+    if (!el) return;
+
+    el.classList.add(HIGHLIGHT_CLASS);
+    el.style.cssText += HIGHLIGHT_STYLE;
+  });
+}
+
+function scanForForms() {
+  const fields = extractFields();
+  applyHighlights(fields);
+
+  if (chrome?.runtime?.sendMessage) {
+    chrome.runtime.sendMessage({
+      type: 'FORM_WINGMAN_FIELDS',
+      fields,
+    });
+  }
+}
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === 'FORM_WINGMAN_SCAN') {
+    scanForForms();
+    sendResponse({ ok: true });
+    return true;
+  }
+
+  return false;
+});
+
+const observer = new MutationObserver(() => {
+  scanForForms();
+});
+
+observer.observe(document.body || document.documentElement, {
+  childList: true,
+  subtree: true,
+  attributes: true,
+  attributeFilter: ['value', 'placeholder', 'required', 'aria-required'],
+});
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', scanForForms, { once: true });
+} else {
+  scanForForms();
+}
