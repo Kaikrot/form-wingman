@@ -9,7 +9,7 @@ function renderFields(fields) {
   }
 
   fieldList.innerHTML = fields.map((field) => `
-    <div class="field-item">
+    <div class="field-item" tabindex="0">
       <strong>${field.label}</strong>
       <div class="field-meta">
         <span>${field.type || 'field'}</span>
@@ -30,21 +30,25 @@ async function scanPage() {
   });
 }
 
-scanButton.addEventListener('click', scanPage);
-audioButton.addEventListener('click', () => {
+function speakFirstField() {
   const firstField = fieldList.querySelector('.field-item strong');
   if (!firstField) return;
 
   if ('speechSynthesis' in window) {
-    const message = `This field needs attention: ${firstField.textContent}. Review it and decide what to enter before you continue.`;
+    const label = firstField.textContent.trim();
+    const message = `This field needs attention: ${label}. Review it and decide what to enter before you continue.`;
     const utterance = new SpeechSynthesisUtterance(message);
     utterance.rate = 0.96;
     speechSynthesis.cancel();
     speechSynthesis.speak(utterance);
-  } else {
-    alert('Audio guidance is not supported in this browser.');
+    return;
   }
-});
+
+  window.alert('Audio guidance is not supported in this browser.');
+}
+
+scanButton.addEventListener('click', scanPage);
+audioButton.addEventListener('click', speakFirstField);
 
 chrome.storage.local.get(['formWingmanFields'], (result) => renderFields(result.formWingmanFields || []));
 chrome.runtime.onMessage.addListener((message) => {
